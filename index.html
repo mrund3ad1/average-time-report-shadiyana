@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+    <title>Document</title>
+  </head>
+  <body>
+    <div id="box-plot"></div>
+    <div id="response-times" style="font-family: Arial, sans-serif"></div>
+
+    <script src="test.js"></script>
+    <script>
+      // calculates average response time of a conversation for each admin in the convo
+      const calculateAverageResponseTime = (conversation) => {
+        const messages = conversation.conversations;
+        // Filter customer and vendor messages
+        const customerMessages = messages.filter(
+          (message) => message.initiator === "customer"
+        );
+        const vendorMessages = messages.filter(
+          (message) => message.initiator === "vendor"
+        );
+
+        let adminsData = {};
+
+        vendorMessages.forEach((vendorMessage) => {
+          if (!vendorMessage.adminId) return;
+
+          const vendorTimestamp = new Date(vendorMessage.timestamp);
+          // Find the customer message preceding the vendor message
+          const precedingCustomerMessage = customerMessages
+            .reverse()
+            .find((customerMessage) => {
+              const customerTimestamp = new Date(customerMessage.timestamp);
+              return customerTimestamp < vendorTimestamp;
+            });
+
+          if (precedingCustomerMessage) {
+            const customerTimestamp = new Date(
+              precedingCustomerMessage.timestamp
+            );
+            const responseTimeInMilliseconds =
+              vendorTimestamp - customerTimestamp;
+
+            // Check if admin data exists for this adminId, if not, initialize it
+            if (!adminsData[vendorMessage.adminId]) {
+              adminsData[vendorMessage.adminId] = {
+                totalAverageResponseTime: 0,
+                numberOfResponses: 0,
+              };
+            }
+
+            // Update admin data
+            adminsData[vendorMessage.adminId].totalAverageResponseTime +=
+              responseTimeInMilliseconds;
+            adminsData[vendorMessage.adminId].numberOfResponses++;
+          }
+        });
+
+        // Calculate average response time for each admin
+        const averageResponseTimes = {};
+        for (const adminId in adminsData) {
+          const { totalAverageResponseTime, numberOfResponses } =
+            adminsData[adminId];
+          if (numberOfResponses > 0) {
+            const averageResponseTimeInMilliseconds =
+              totalAverageResponseTime / numberOfResponses;
+            const averageResponseTimeInMinutes =
+              averageResponseTimeInMilliseconds / 60000;
+            averageResponseTimes[adminId] = averageResponseTimeInMinutes;
+          } else {
+            averageResponseTimes[adminId] = -1;
+          }
+        }
+
+        return averageResponseTimes;
+      };
+
+      // stores average response times, and no of conversations for each vendor
+      let totalAdminConversations = {};
+
+      conversations.forEach((conversation) => {
+        const averageResponseTimes = calculateAverageResponseTime(
+          conversation.data
+        );
+        for (const adminId in averageResponseTimes) {
+          if (averageResponseTimes[adminId] !== -1) {
+            if (!totalAdminConversations[adminId]) {
+              totalAdminConversations[adminId] = {
+                totalResponseTime: 0,
+                numberOfConversations: 0,
+                responseTimesArray: [], // Add an array to store response times
+              };
+            }
+            if (averageResponseTimes[adminId] < 15000) {
+              totalAdminConversations[adminId].totalResponseTime +=
+                averageResponseTimes[adminId];
+              totalAdminConversations[adminId].numberOfConversations++;
+              totalAdminConversations[adminId].responseTimesArray.push(
+                parseFloat(averageResponseTimes[adminId].toFixed(1))
+              ); // Round off and push the average response time to the array
+            }
+          }
+        }
+      });
+
+      // Calculate overall average response time for each admin
+      const overallAverageForAdmin = {};
+      for (const adminId in totalAdminConversations) {
+        const { totalResponseTime, numberOfConversations } =
+          totalAdminConversations[adminId];
+        if (numberOfConversations > 0) {
+          overallAverageForAdmin[adminId] = parseFloat(
+            (totalResponseTime / numberOfConversations).toFixed(1)
+          ); // Round off the overall average response time
+        } else {
+          overallAverageForAdmin[adminId] = -1;
+        }
+      }
+
+      // Generate adminAverageResponseTimes array
+      let adminAverageResponseTimes = {};
+      for (const adminId in totalAdminConversations) {
+        adminAverageResponseTimes[adminId] =
+          totalAdminConversations[adminId].responseTimesArray;
+      }
+
+      // Format results
+      let formattedResults = "Overall Average Response Time for Each Admin:\n";
+      for (const adminId in overallAverageForAdmin) {
+        formattedResults += `Admin ${adminId}: ${overallAverageForAdmin[adminId]} minutes\n`;
+      }
+
+      formattedResults += "\nAdmin Average Response Times Array:\n";
+      for (const adminId in adminAverageResponseTimes) {
+        formattedResults += `Admin ${adminId}: [${adminAverageResponseTimes[
+          adminId
+        ].join(", ")}]\n`;
+      }
+
+      console.log("Overall Average response time for each admin:");
+      console.log(overallAverageForAdmin);
+
+      console.log("Admin Average Response Times Array:");
+      console.log(adminAverageResponseTimes);
+
+      // Extract data for Plotly
+      let data = [];
+      for (const admin in adminAverageResponseTimes) {
+        data.push({
+          y: adminAverageResponseTimes[admin],
+          type: "box",
+          name: admin,
+        });
+      }
+
+      // Layout options
+      let layout = {
+        title: "Average Response Time Distribution by Admin",
+        yaxis: {
+          title: "Response Time (minutes)",
+        },
+      };
+
+      // Plot the box plot
+      Plotly.newPlot("box-plot", data, layout);
+
+      // Function to convert data to HTML
+      function convertDataToHTML(
+        overallAverageForAdmin,
+        adminAverageResponseTimes
+      ) {
+        let html =
+          "<h2 style='margin-bottom: 10px;'>Overall Average Response Time for Each Admin:</h2>";
+        html +=
+          "<p style='opacity:0.7'>This shows the overall average time for each admin id accross all the conversations.</p>";
+        html += "<ul style='list-style-type: none; padding-left: 0;'>";
+        for (const admin in overallAverageForAdmin) {
+          html += `<li style='margin-bottom: 5px;'>
+      <span style='font-weight:bold;'>Admin ${admin}</span>: ${overallAverageForAdmin[admin]} minutes</li>`;
+        }
+        html += "</ul>";
+        html += "<br>";
+        html += "<br>";
+
+        html +=
+          "<h2 style='margin-top: 20px; margin-bottom: 10px;'>Admin Average Response Times Array:</h2>";
+        html +=
+          "<p style='opacity:0.7'>This shows the average response time (minutes) of each admin accross different conversations they got engaged in.</p>";
+        for (const admin in adminAverageResponseTimes) {
+          html += `<p style='margin-bottom: 10px;'>Admin ${admin}: [`;
+          adminAverageResponseTimes[admin].forEach((time) => {
+            let color = "";
+            if (time < 20) {
+              color = "green";
+            } else if (time >= 20 && time <= 120) {
+              color = "orange";
+            } else {
+              color = "red";
+            }
+            html += `<span style='color: ${color};'>${time}</span>, `;
+          });
+          html = html.slice(0, -2); // Remove the last comma and space
+          html += "]</p>";
+        }
+
+        return html;
+      }
+
+      // Add data to HTML
+      document.getElementById("response-times").innerHTML = convertDataToHTML(
+        overallAverageForAdmin,
+        adminAverageResponseTimes
+      );
+    </script>
+  </body>
+</html>
